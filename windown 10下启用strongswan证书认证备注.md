@@ -1,0 +1,141 @@
+1、操作环境，linux 或 cygwin,需要openssl v1.1.1以上版本
+2、首先对/etc/ssl/openssl.cnf进行修改，具体修改如下：
+
+--- /etc/ssl/openssl.cnf.org
++++ /etc/ssl/openssl.cnf
+@@ -42,20 +42,20 @@
+ ####################################################################
+ [ CA_default ]
+ 
+-dir            = ./demoCA              # Where everything is kept
++dir            = .             # Where everything is kept
+ certs          = $dir/certs            # Where the issued certs are kept
+ crl_dir                = $dir/crl              # Where the issued crl are kept
+ database       = $dir/index.txt        # database index file.
+ #unique_subject        = no                    # Set to 'no' to allow creation of
+                                        # several certs with same subject.
+-new_certs_dir  = $dir/newcerts         # default place for new certs.
++new_certs_dir  = $dir/         # default place for new certs.
+ 
+-certificate    = $dir/cacert.pem       # The CA certificate
++certificate    = $dir/caCert.pem       # The CA certificate
+ serial         = $dir/serial           # The current serial number
+ crlnumber      = $dir/crlnumber        # the current crl number
+                                        # must be commented out to leave a V1 CRL
+ crl            = $dir/crl.pem          # The current CRL
+-private_key    = $dir/private/cakey.pem# The private key
++private_key    = $dir/caKey.pem # The private key
+ 
+ x509_extensions        = usr_cert              # The extensions to add to the cert
+ 
+@@ -72,8 +72,8 @@
+ # crlnumber must also be commented out to leave a V1 CRL.
+ # crl_extensions       = crl_ext
+ 
+-default_days   = 365                   # how long to certify for
+-default_crl_days= 30                   # how long before next CRL
++default_days   = 3652                  # how long to certify for
++default_crl_days= 3652                 # how long before next CRL
+ default_md     = default               # use public key default MD
+ preserve       = no                    # keep passed DN ordering
+ 
+ 
+3、创建一个 certExt.cnf 文件，内容为x509 v3扩展属性,详细内容如下
+ 
+basicConstraints=CA:FALSE
+nsComment="OpenSSL Generated Certificate"
+subjectKeyIdentifier=hash
+authorityKeyIdentifier=keyid,issuer
+extendedKeyUsage = serverAuth,1.3.6.1.5.5.8.2.2
+subjectAltName = DNS:vpnserver.domain
+
+4、创建两个文件 index.txt serial ，使用命令“echo 00 >  serial”初始化serial文件内容
+5、使用命令创建CA证书和私钥，
+    openssl req -nodes -x509 -days 3652 -newkey rsa:2048 \
+        -subj "/C=CN/ST=BeiJing/O=strongSwan/CN=strongSwan CA" \
+        -keyout caKey.pem -out caCert.pem
+        
+6、使用如下命令创建server证书和私钥，以及打包导出证书p12格式
+    openssl req -nodes -days 3652 -newkey rsa:2048 \
+            -subj "/C=CN/ST=BeiJing/O=strongSwan/CN=vpnserver.domain" \
+            -keyout serverKey.pem -out serverReq.pem \
+
+    openssl ca -batch -extfile certExt.cnf -in serverReq.pem -out serverCert.pem
+
+7、在server证书和私钥创建好之后，编辑certExt.cnf文件，把“extendedKeyUsage = serverAuth,1.3.6.1.5.5.8.2.2”这一行删除，以进行创建client端证书及私钥
+
+8、使用如下命令创建client证书和私钥，以及打包导出证书p12格式
+    openssl req -nodes -days 3652 -newkey rsa:2048 \
+            -subj "/C=CN/ST=BeiJing/O=strongSwan/CN=client" \
+            -keyout clientKey.pem -out clientReq.pem
+
+    openssl ca -batch -extfile certExt.cnf -in clientReq.pem -out clientCert.pem
+
+    openssl pkcs12 -export -inkey clientKey.pem -in clientCert.pem \
+            -name "client" -certfile caCert.pem -caname "strongSwan CA" -out clientCert.p12
+ 
+9、把clientCert.p12导入win10下“本地计算机”证书，不要导入“当前账号”中
+ 
+10、在win10下，导入如下注册表
+ 
+Windows Registry Editor Version 5.00
+
+[HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\RasMan\Parameters]
+"NegotiateDH2048_AES256"=dword:00000002
+
+11、在win10下，新建ikev2 vpn连接，“安全”选项中选择“使用计算机证书”，服务端配置没有错误，即可使用连接VPN
+ 
+12、linux服务端证书及私钥，使用如下命令复制
+      cp -f serverKey.pem clientKey.pem /etc/swanctl/private/
+      cp -f serverCert.pem clientCert.pem phoneCert.pem /etc/swanctl/x509
+      cp -f caCert.pem /etc/swanctl/x509ca/
+
+13、linux服务端配置文件/etc/swanctl/swanctl.conf，参考内容如下
+
+# Section defining IKE connection configurations.
+connections {
+
+    # Section for an IKE connection named <conn>.
+    vpnclient {
+        version = 2
+        proposals = aes256-sha256-modp2048
+        pools = vpnclient_vip
+        dpd_delay = 1800s
+        unique = no
+        rekey_time = 0s
+
+        local {
+            auth = pubkey
+            certs = serverCert.pem
+            id = "C=CN, ST=BeiJing, O=strongSwan, CN=vpnserver.domain"
+        }
+
+        remote {
+            id = "C=CN, ST=BeiJing, O=strongSwan, CN=client"
+            auth = pubkey
+        }
+
+        children {
+            vpnclient {
+                esp_proposals = aes256-sha1
+                policies = yes
+                dpd_action = clear
+                local_ts = 0.0.0.0/0
+            }
+        }
+    }
+}
+
+# Section defining named pools.
+pools {
+    vpnclient_vip {
+        addrs = 172.16.0.2
+        netmask = 255.255.255.0
+        dns = 192.168.1.1
+    }
+}
+
+注意：实际应用中，vpnserver.domain必须保持一致
+
+ 
+ 
