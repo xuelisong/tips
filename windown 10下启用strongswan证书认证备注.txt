@@ -57,7 +57,7 @@ subjectAltName = DNS:vpnserver.domain
         -subj "/C=CN/ST=BeiJing/O=strongSwan/CN=strongSwan CA" \
         -keyout caKey.pem -out caCert.pem
         
-6、使用如下命令创建server证书和私钥，以及打包导出证书p12格式
+6、使用如下命令创建server证书和私钥
     openssl req -nodes -days 3652 -newkey rsa:2048 \
             -subj "/C=CN/ST=BeiJing/O=strongSwan/CN=vpnserver.domain" \
             -keyout serverKey.pem -out serverReq.pem \
@@ -85,11 +85,11 @@ Windows Registry Editor Version 5.00
 [HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\RasMan\Parameters]
 "NegotiateDH2048_AES256"=dword:00000002
 
-11、在win10下，新建ikev2 vpn连接，“安全”选项中选择“使用计算机证书”，服务端配置没有错误，即可使用连接VPN
+11、在win10下，新建ikev2 vpn连接，“安全”选项中选择“使用计算机证书”，服务端配置没有错误，即可连接VPN
  
 12、linux服务端证书及私钥，使用如下命令复制
       cp -f serverKey.pem clientKey.pem /etc/swanctl/private/
-      cp -f serverCert.pem clientCert.pem phoneCert.pem /etc/swanctl/x509
+      cp -f serverCert.pem clientCert.pem /etc/swanctl/x509
       cp -f caCert.pem /etc/swanctl/x509ca/
 
 13、linux服务端配置文件/etc/swanctl/swanctl.conf，参考内容如下
